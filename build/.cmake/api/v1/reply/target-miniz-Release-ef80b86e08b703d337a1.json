@@ -3,7 +3,7 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "/home/roman/Desktop/hydra3/HydraCore3/bin-release/libminiz.a"
+			"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/bin-release/libminiz.a"
 		}
 	],
 	"backtrace" : 1,
@@ -27,25 +27,25 @@
 			{
 				"command" : 0,
 				"file" : 0,
-				"line" : 100,
+				"line" : 111,
 				"parent" : 0
 			},
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 7,
+				"line" : 8,
 				"parent" : 0
 			},
 			{
 				"command" : 2,
 				"file" : 0,
-				"line" : 62,
+				"line" : 63,
 				"parent" : 0
 			},
 			{
 				"command" : 2,
 				"file" : 0,
-				"line" : 59,
+				"line" : 60,
 				"parent" : 0
 			}
 		]
@@ -70,30 +70,30 @@
 			[
 				{
 					"backtrace" : 3,
-					"path" : "/home/roman/Desktop/hydra3/HydraCore3/external"
+					"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/external"
 				},
 				{
 					"backtrace" : 3,
-					"path" : "/home/roman/Desktop/hydra3/HydraCore3/external/vkutils"
+					"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/external/vkutils"
 				},
 				{
 					"backtrace" : 3,
-					"path" : "/home/roman/Desktop/hydra3/HydraCore3/external/CrossRT"
+					"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/external/CrossRT"
 				},
 				{
 					"backtrace" : 4,
 					"isSystem" : true,
-					"path" : "/home/roman/Desktop/hydra3/HydraCore3/external/tinyexr"
+					"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/external/tinyexr"
 				},
 				{
 					"backtrace" : 4,
 					"isSystem" : true,
-					"path" : "/home/roman/Desktop/hydra3/HydraCore3/external/volk"
+					"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/external/volk"
 				},
 				{
 					"backtrace" : 4,
 					"isSystem" : true,
-					"path" : "/home/roman/Desktop/hydra3/HydraCore3/external/LiteMath"
+					"path" : "/home/roman/Desktop/hydra3spectr/HydraCore3/external/LiteMath"
 				}
 			],
 			"language" : "C",
