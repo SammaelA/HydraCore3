@@ -186,6 +186,9 @@
 			"isCMake" : true,
 			"isExternal" : true,
 			"path" : "/home/roman/.local/lib/python3.10/site-packages/cmake/data/share/cmake-3.27/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"path" : "ies_parser/CMakeLists.txt"
 		}
 	],
 	"kind" : "cmakeFiles",
