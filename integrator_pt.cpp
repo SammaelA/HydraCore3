@@ -43,7 +43,7 @@ void Integrator::kernel_InitEyeRay2(uint tid, const uint* packedXY,
   const uint y = (XY & 0xFFFF0000) >> 16;
   const float2 pixelOffsets = rndFloat2_Pseudo(&genLocal);
 
-  if(x == 70 && y == 512 - 250 - 1)
+  if(x == 237 && y == 512 - 109 - 1)
   {
     int a = 2;
   }
@@ -191,37 +191,11 @@ void Integrator::kernel_RayTrace2(uint tid, uint bounce, const float4* rayPosAnd
     *out_instId            = hit.instId;
   }
   else
-    *rayFlags              = currRayFlags | (RAY_FLAG_IS_DEAD | RAY_FLAG_OUT_OF_SCENE);
-}
-
-float4 Integrator::GetLightSourceIntensity(uint a_lightId, const float4* a_wavelengths, float3 a_rayPos, float3 a_rayDir)
-{
-  float4 lightColor = m_lights[a_lightId].intensity;  
-  const uint specId = m_lights[a_lightId].specId;
-  if(KSPEC_SPECTRAL_RENDERING !=0 && m_spectral_mode != 0 && specId < 0xFFFFFFFF)
   {
-    const uint2 data  = m_spec_offset_sz[specId];
-    const uint offset = data.x;
-    const uint size   = data.y;
-    lightColor = SampleUniformSpectrum(m_spec_values.data() + offset, *a_wavelengths, size);
+    const uint flagsToAdd = (bounce == 0) ? (RAY_FLAG_PRIME_RAY_MISS | RAY_FLAG_IS_DEAD | RAY_FLAG_OUT_OF_SCENE) : (RAY_FLAG_IS_DEAD | RAY_FLAG_OUT_OF_SCENE);
+    *rayFlags             = currRayFlags | flagsToAdd;
   }
-  lightColor *= m_lights[a_lightId].mult;
-  
-  uint iesId = m_lights[a_lightId].iesId;
-  if(iesId != uint(-1))
-  {
-    if((m_lights[a_lightId].flags & LIGHT_FLAG_POINT_AREA) != 0)
-      a_rayDir = normalize(to_float3(m_lights[a_lightId].pos) - a_rayPos);
-    const float3 dirTrans = to_float3(m_lights[a_lightId].iesMatrix*to_float4(a_rayDir, 0.0f));
-    float sintheta        = 0.0f;
-    const float2 texCoord = sphereMapTo2DTexCoord((-1.0f)*dirTrans, &sintheta);
-    const float4 texColor = m_textures[iesId]->sample(texCoord);
-    lightColor *= texColor;
-  }
-
-  return lightColor;
 }
-
 
 void Integrator::kernel_SampleLightSource(uint tid, const float4* rayPosAndNear, const float4* rayDirAndFar, const float4* wavelengths,
                                           const float4* in_hitPart1, const float4* in_hitPart2, const float4* in_hitPart3,
@@ -246,10 +220,10 @@ void Integrator::kernel_SampleLightSource(uint tid, const float4* rayPosAndNear,
   hit.tang = to_float3(*in_hitPart3);
   hit.uv   = float2(data1.w, data2.w);
 
-  const float2 rands = rndFloat2_Pseudo(a_gen); // don't use single rndFloat4 (!!!)
+  const float4 rands = rndFloat4_Pseudo(a_gen); // don't use single rndFloat4 (!!!)
   const float rndId  = rndFloat1_Pseudo(a_gen); // don't use single rndFloat4 (!!!)
   const int lightId  = std::min(int(std::floor(rndId * float(m_lights.size()))), int(m_lights.size() - 1u));
-  RecordLightRndIfNeeded(bounce, lightId, rands);
+  RecordLightRndIfNeeded(bounce, lightId, float2(rands.x, rands.y)); // TODO: write float3 ?
 
   if(lightId < 0) // no lights or invalid light id
   {
@@ -257,22 +231,21 @@ void Integrator::kernel_SampleLightSource(uint tid, const float4* rayPosAndNear,
     return;
   }
   
-  const LightSample lSam = LightSampleRev(lightId, rands, hit.pos);
+  const LightSample lSam = LightSampleRev(lightId, to_float3(rands), hit.pos);
   const float  hitDist   = std::sqrt(dot(hit.pos - lSam.pos, hit.pos - lSam.pos));
 
   const float3 shadowRayDir = normalize(lSam.pos - hit.pos); // explicitSam.direction;
   const float3 shadowRayPos = hit.pos + hit.norm * std::max(maxcomp(hit.pos), 1.0f)*5e-6f; // TODO: see Ray Tracing Gems, also use flatNormal for offset
-  const bool   inShadow     = m_pAccelStruct->RayQuery_AnyHit(to_float4(shadowRayPos, 0.0f), to_float4(shadowRayDir, hitDist*0.9995f));
   const bool   inIllumArea  = (dot(shadowRayDir, lSam.norm) < 0.0f) || lSam.isOmni || lSam.hasIES;
+  const bool   needShade    = inIllumArea && !m_pAccelStruct->RayQuery_AnyHit(to_float4(shadowRayPos, 0.0f), to_float4(shadowRayDir, hitDist*0.9995f)); /// (!!!) expression-way, RT pipeline bug work around, if change check test_213
+  RecordShadowHitIfNeeded(bounce, needShade);
 
-  RecordShadowHitIfNeeded(bounce, inShadow);
-
-  if(!inShadow && inIllumArea) 
+  if(needShade) /// (!!!) expression-way to compute 'needShade', RT pipeline bug work around, if change check test_213
   {
     const BsdfEval bsdfV    = MaterialEval(matId, lambda, shadowRayDir, (-1.0f)*ray_dir, hit.norm, hit.tang, hit.uv);
     float cosThetaOut       = std::max(dot(shadowRayDir, hit.norm), 0.0f);
     
-    float      lgtPdfW      = LightPdfSelectRev(lightId) * LightEvalPDF(lightId, shadowRayPos, shadowRayDir, lSam.pos, lSam.norm);
+    float      lgtPdfW      = LightPdfSelectRev(lightId) * LightEvalPDF(lightId, shadowRayPos, shadowRayDir, lSam.pos, lSam.norm, lSam.pdf);
     float      misWeight    = (m_intergatorType == INTEGRATOR_MIS_PT) ? misWeightHeuristic(lgtPdfW, bsdfV.pdf) : 1.0f;
     const bool isDirect     = (m_lights[lightId].geomType == LIGHT_GEOM_DIRECT); 
     const bool isPoint      = (m_lights[lightId].geomType == LIGHT_GEOM_POINT); 
@@ -285,10 +258,13 @@ void Integrator::kernel_SampleLightSource(uint tid, const float4* rayPosAndNear,
     else if(isPoint)
       misWeight = 1.0f;
 
-    if(m_skipBounce >= 1 && int(bounce) < int(m_skipBounce)-1) // skip some number of bounces if this is set
+    const bool isDirectLight = !hasNonSpecular(currRayFlags);
+    if((m_renderLayer == FB_DIRECT   && !isDirectLight) || 
+        m_renderLayer == FB_INDIRECT && isDirectLight) // skip some number of bounces if this is set
       misWeight = 0.0f;
+      
     
-    const float4 lightColor = GetLightSourceIntensity(lightId, wavelengths, shadowRayPos, shadowRayDir);
+    const float4 lightColor = LightIntensity(lightId, wavelengths, shadowRayPos, shadowRayDir);
     *out_shadeColor = (lightColor * bsdfV.val / lgtPdfW) * cosThetaOut * misWeight;
   }
   else
@@ -344,27 +320,26 @@ void Integrator::kernel_NextBounce(uint tid, uint bounce, const float4* in_hitPa
     {
       const float lightCos = dot(to_float3(*rayDirAndFar), to_float3(m_lights[lightId].norm));
       const float lightDirectionAtten = (lightCos < 0.0f || m_lights[lightId].geomType == LIGHT_GEOM_SPHERE) ? 1.0f : 0.0f;
-      lightIntensity = GetLightSourceIntensity(lightId, wavelengths, ray_pos, to_float3(*rayDirAndFar))*lightDirectionAtten;
+      lightIntensity = LightIntensity(lightId, wavelengths, ray_pos, to_float3(*rayDirAndFar))*lightDirectionAtten;
     }
 
     float misWeight = 1.0f;
     if(m_intergatorType == INTEGRATOR_MIS_PT) 
     {
-      if(bounce > 0)
+      if(bounce > 0 && lightId != 0xFFFFFFFF)
       {
-        if(lightId != 0xFFFFFFFF)
-        {
-          const float lgtPdf  = LightPdfSelectRev(lightId) * LightEvalPDF(lightId, ray_pos, ray_dir, hit.pos, hit.norm);
-          misWeight           = misWeightHeuristic(prevPdfW, lgtPdf);
-          if (prevPdfW <= 0.0f) // specular bounce
-            misWeight = 1.0f;
-        }
+        const float lgtPdf  = LightPdfSelectRev(lightId) * LightEvalPDF(lightId, ray_pos, ray_dir, hit.pos, hit.norm, 1.0f);
+        misWeight           = misWeightHeuristic(prevPdfW, lgtPdf);
+        if (prevPdfW <= 0.0f) // specular bounce
+          misWeight = 1.0f;
       }
     }
     else if(m_intergatorType == INTEGRATOR_SHADOW_PT && hasNonSpecular(currRayFlags))
       misWeight = 0.0f;
     
-    if(m_skipBounce >= 1 && bounce < m_skipBounce) // skip some number of bounces if this is set
+    const bool isDirectLight  = !hasNonSpecular(currRayFlags);
+    const bool isFirstNonSpec = (currRayFlags & RAY_FLAG_FIRST_NON_SPEC) != 0;
+    if(m_renderLayer == FB_INDIRECT && (isDirectLight || isFirstNonSpec))
       misWeight = 0.0f;
 
     float4 currAccumColor      = *accumColor;
@@ -406,11 +381,17 @@ void Integrator::kernel_NextBounce(uint tid, uint bounce, const float4* in_hitPa
   if((matSam.flags & RAY_EVENT_T) != 0)
   {
     hit.pos = hit.pos + hitDist * ray_dir * 2 * 1e-6f;
-  }
+  }  
 
   *rayPosAndNear = to_float4(OffsRayPos(hit.pos, hit.norm, matSam.dir), 0.0f); // todo: use flatNormal for offset
   *rayDirAndFar  = to_float4(matSam.dir, FLT_MAX);
-  *rayFlags      = currRayFlags | matSam.flags;
+  
+  uint nextFlags = ((currRayFlags & ~RAY_FLAG_FIRST_NON_SPEC) | matSam.flags); // always force reset RAY_FLAG_FIRST_NON_SPEC;
+  if(m_renderLayer == FB_DIRECT && hasNonSpecular(currRayFlags))   // NOTE: use currRayFlags for check, not nextFlags because of MIS: a ray may hit light source in next bounce
+    nextFlags |= RAY_FLAG_IS_DEAD;                                 //       but if we already have non specular bounce previously, definitely can stop  
+  else if(!hasNonSpecular(currRayFlags) && hasNonSpecular(nextFlags))
+    nextFlags |= RAY_FLAG_FIRST_NON_SPEC;
+  *rayFlags      = nextFlags;                                   
 }
 
 void Integrator::kernel_HitEnvironment(uint tid, const uint* rayFlags, const float4* rayDirAndFar, const MisData* a_prevMisData, const float4* accumThoroughput,
@@ -422,11 +403,38 @@ void Integrator::kernel_HitEnvironment(uint tid, const uint* rayFlags, const flo
   if(!isOutOfScene(currRayFlags))
     return;
   
-  // TODO: HDRI maps
-  const float4 envData  = GetEnvironmentColorAndPdf(to_float3(*rayDirAndFar));
-  // const float3 envColor = to_float3(envData)/envData.w;    // explicitly account for pdf; when MIS will be enabled, need to deal with MIS weight also!
+  float envPdf = 1.0f;
+  float4 envColor = EnvironmentColor(to_float3(*rayDirAndFar), envPdf);
 
-  const float4 envColor = envData;
+  const auto misPrev  = *a_prevMisData;
+  const bool isSpec   = isSpecular(&misPrev);
+  const bool exitZero = (currRayFlags & RAY_FLAG_PRIME_RAY_MISS) != 0;
+
+  if(m_intergatorType == INTEGRATOR_MIS_PT && m_envEnableSam != 0 && !isSpec && !exitZero)
+  {
+    float lgtPdf    = LightPdfSelectRev(m_envLightId)*envPdf;
+    float bsdfPdf   = misPrev.matSamplePdf;
+    float misWeight = misWeightHeuristic(bsdfPdf, lgtPdf); // (bsdfPdf*bsdfPdf) / (lgtPdf*lgtPdf + bsdfPdf*bsdfPdf);
+    envColor *= misWeight;    
+  }
+  else if(m_intergatorType == INTEGRATOR_SHADOW_PT && m_envEnableSam != 0)
+  {
+    envColor = float4(0.0f);
+  }
+  
+  const uint camBackId = m_envCamBackId;
+  if(exitZero && camBackId != uint(-1)) // apply camera back color to ray
+  {
+    const uint XY = m_packedXY[tid];
+    const uint x  = (XY & 0x0000FFFF);
+    const uint y  = (XY & 0xFFFF0000) >> 16;
+
+    const float2 texCoord = float2((float(x) + 0.5f)/float(m_winWidth), 
+                                   (float(y) + 0.5f)/float(m_winHeight));
+
+    envColor = m_textures[camBackId]->sample(texCoord);
+  }
+ 
   if(m_intergatorType == INTEGRATOR_STUPID_PT)     // todo: when explicit sampling will be added, disable contribution here for 'INTEGRATOR_SHADOW_PT'
     *accumColor = (*accumThoroughput) * envColor;
   else
@@ -595,7 +603,7 @@ void Integrator::NaivePathTrace(uint tid, uint channels, float* out_color)
   }
 
   kernel_HitEnvironment(tid, &rayFlags, &rayDirAndFar, &mis, &accumThroughput,
-                       &accumColor);
+                        &accumColor);
 
   kernel_ContributeToImage(tid, &rayFlags, channels, &accumColor, &gen, m_packedXY.data(), &wavelengths, 
                            out_color);

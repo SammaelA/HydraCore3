@@ -19,71 +19,6 @@ using LiteImage::Sampler;
 using LiteImage::ICombinedImageSampler;
 using namespace LiteMath;
 
-LightSample Integrator::LightSampleRev(int a_lightId, float2 rands, float3 illiminationPoint)
-{
-  const uint gtype = m_lights[a_lightId].geomType;
-  switch(gtype)
-  {
-    case LIGHT_GEOM_DIRECT: return directLightSampleRev(m_lights.data() + a_lightId, rands, illiminationPoint);
-    case LIGHT_GEOM_SPHERE: return sphereLightSampleRev(m_lights.data() + a_lightId, rands);
-    case LIGHT_GEOM_POINT:  return pointLightSampleRev (m_lights.data() + a_lightId);
-    default:                return areaLightSampleRev  (m_lights.data() + a_lightId, rands);
-  };
-}
-
-float Integrator::LightPdfSelectRev(int a_lightId) 
-{ 
-  return 1.0f/float(m_lights.size()); // uniform select
-}
-
-//static inline float DistanceSquared(float3 a, float3 b)
-//{
-//  const float3 diff = b - a;
-//  return dot(diff, diff);
-//}
-
-float Integrator::LightEvalPDF(int a_lightId, float3 illuminationPoint, float3 ray_dir, const float3 lpos, const float3 lnorm)
-{
-  const uint gtype      = m_lights[a_lightId].geomType;
-  const float hitDist   = length(illuminationPoint - lpos);
-  const float cosValTmp = dot(ray_dir, -1.0f*lnorm);
-  float cosVal = 1.0f;
-  switch(gtype)
-  {
-    case LIGHT_GEOM_SPHERE:
-    {
-      // const float  lradius = m_lights[a_lightId].size.x;
-      // const float3 lcenter = to_float3(m_lights[a_lightId].pos);
-      //if (DistanceSquared(illuminationPoint, lcenter) - lradius*lradius <= 0.0f)
-      //  return 1.0f;
-      const float3 dirToV = normalize(lpos - illuminationPoint);
-      cosVal = std::abs(dot(dirToV, lnorm));
-    }
-    break;
-
-    case LIGHT_GEOM_POINT:
-    {
-      if(m_lights[a_lightId].distType == LIGHT_DIST_OMNI)
-        cosVal = 1.0f;
-      else
-        cosVal = std::max(cosValTmp, 0.0f);
-    };
-    break;
-
-    default: // any type of area light
-    //cosVal = std::max(cosValTmp, 0.0f);                                                               ///< Note(!): actual correct way for area lights
-    cosVal = (m_lights[a_lightId].iesId == uint(-1)) ? std::max(cosValTmp, 0.0f) : std::abs(cosValTmp); ///< Note(!): this is not physically correct for area lights, see test_206;
-    break;                                                                                              ///< Note(!): dark line on top of image for pink light appears because area light don't shine to the side. 
-  };
-  
-  return PdfAtoW(m_lights[a_lightId].pdfA, hitDist, cosVal);
-}
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 
 uint32_t Integrator::BlendSampleAndEval(uint a_materialId, uint bounce, uint layer, float4 wavelengths, RandomGen* a_gen, float3 v, float3 n, float2 tc, 
                                         MisData* a_misPrev, BsdfSample* a_pRes)
@@ -544,11 +479,6 @@ BsdfEval Integrator::MaterialEval(uint a_materialId, float4 wavelengths, float3 
   return res;
 }
 
-float4 Integrator::GetEnvironmentColorAndPdf(float3 a_dir)
-{
-  return m_envColor;
-}
-
 uint Integrator::RemapMaterialId(uint a_mId, int a_instId)
 {
   const int remapListId  = m_remapInst[a_instId];
@@ -593,19 +523,3 @@ uint Integrator::RemapMaterialId(uint a_mId, int a_instId)
 
   return res;
 } 
-
-void Integrator::GetExecutionTime(const char* a_funcName, float a_out[4])
-{
-  if(std::string(a_funcName) == "NaivePathTrace" || std::string(a_funcName) == "NaivePathTraceBlock")
-    a_out[0] = naivePtTime;
-  else if(std::string(a_funcName) == "PathTrace" || std::string(a_funcName) == "PathTraceBlock")
-    a_out[0] = shadowPtTime;
-  else if(std::string(a_funcName) == "RayTrace" || std::string(a_funcName) == "RayTraceBlock")
-    a_out[0] = raytraceTime;
-  else if(std::string(a_funcName) == "PathTraceFromInputRays" || std::string(a_funcName) == "PathTraceFromInputRaysBlock")
-    a_out[0] = fromRaysPtTime;
-}
-
-void Integrator::ProgressBarStart()                  { _ProgressBarStart(); }
-void Integrator::ProgressBarAccum(float a_progress)  { _ProgressBarAccum(a_progress); }
-void Integrator::ProgressBarDone()                   { _ProgressBarDone(); }
